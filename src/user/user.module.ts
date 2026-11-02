@@ -7,7 +7,8 @@ import { UserSubscriber } from './user.subscriber.js';
 
 @Module({
   imports: [TypeOrmModule.forFeature([User])],
-  controllers: [UserController, UserSubscriber],
-  providers: [UserService],
+  controllers: [UserController],
+  providers: [UserService, UserSubscriber],
+  exports: [TypeOrmModule, UserService]
 })
 export class UserModule {}

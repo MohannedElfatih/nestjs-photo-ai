@@ -1,0 +1,73 @@
+@baseUrl = http://localhost:3000
+
+### AI: ask (public while testing)
+POST {{baseUrl}}/ai/ask
+Content-Type: application/json
+
+{
+  "prompt": "Explain a reverse proxy in one sentence"
+}
+
+### Auth: sign up (email must be new each time; also signs you in)
+POST {{baseUrl}}/auth/sign-up
+Content-Type: application/json
+
+{
+  "firstName": "Test",
+  "lastName": "User",
+  "email": "test@example.com",
+  "password": "12345678"
+}
+
+### Auth: sign in
+POST {{baseUrl}}/auth/sign-in
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "12345678"
+}
+
+### Auth: who am I? (needs a session cookie from sign-up or sign-in)
+GET {{baseUrl}}/auth/me
+
+### Auth: sign out
+POST {{baseUrl}}/auth/sign-out
+
+### Photo: create demo user + photo + metadata + album (needs sign-in: global guard)
+POST {{baseUrl}}/photo/demo
+
+### Photo: list photos with relations (needs sign-in)
+GET {{baseUrl}}/photo
+
+### AI: stream the answer over SSE (chunks arrive as events)
+GET {{baseUrl}}/ai/stream?prompt=Explain%20a%20reverse%20proxy%20in%20three%20sentences
+
+### Photo: upload an image (needs sign-in; put a JPEG/PNG next to this file as sample.jpg)
+POST {{baseUrl}}/photo
+Content-Type: multipart/form-data; boundary=----form
+
+------form
+Content-Disposition: form-data; name="name"
+
+Me and Bears
+------form
+Content-Disposition: form-data; name="file"; filename="sample.jpg"
+Content-Type: image/jpeg
+
+< ./sample.jpg
+------form--
+
+### Photo: re-run the AI description for photo 1 (uses the stored file)
+POST {{baseUrl}}/photo/1/describe
+
+### Photo: download the stored image
+GET {{baseUrl}}/photo/1/file
+
+### Chat: the model calls tools to read YOUR photos (needs sign-in)
+POST {{baseUrl}}/chat
+Content-Type: application/json
+
+{
+  "message": "What photos have I uploaded, and what are they about?"
+}

@@ -1,4 +1,5 @@
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { ClassSerializerInterceptor, MiddlewareConsumer, Module, NestModule, ValidationPipe } from '@nestjs/common';
+import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { createObserveModule } from '@nestjs/observe';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
@@ -10,6 +11,12 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UserModule } from './user/user.module.js';
+import { PhotoModule } from './photo/photo.module.js';
+import { AuthModule } from './auth/auth.module.js';
+import { AuthenticationModule } from '@nestjs/authentication';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { AiModule } from './ai/ai.module.js';
+import { ChatModule } from './chat/chat.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -23,22 +30,47 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       appSecret: process.env.OBSERVE_APP_SECRET ?? 'YOUR_APP_SECRET',
       serviceId: 'nestjs-learn',
     }),
+    // Loads .env into ConfigService; isGlobal means no per-module imports.
+    ConfigModule.forRoot({ isGlobal: true }),
     CatsModule,
     UserModule,
+    PhotoModule,
     ScheduleModule.forRoot(),
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: 'localhost',
-      port: 3306,
-      username: 'root',
-      password: 'root',
-      database: 'test',
-      autoLoadEntities: true,
-      synchronize: process.env.NODE_ENV !== 'production',
+    // forRootAsync lets the options be built from ConfigService instead of process.env.
+    TypeOrmModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        type: 'postgres',
+        host: 'localhost',
+        port: 5432,
+        username: 'postgres',
+        password: 'postgres',
+        database: 'nestlearn',
+        autoLoadEntities: true,
+        synchronize: config.get('NODE_ENV') !== 'production',
+      }),
     }),
+    // Registers a global guard: every route needs a signed-in user unless marked @Public().
+    AuthenticationModule.forRoot({
+      session: {
+        absoluteTtl: '14d', // signed out after 14 days, however active
+        idleTtl: '3d', // or after 3 days without a request
+      },
+    }),
+    AuthModule,
+    AiModule,
+    ChatModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Global providers via injection tokens: Nest applies these to every route.
+    // Unlike app.useGlobal*() in main.ts, they go through dependency injection.
+    // Required by the auth package; whitelist drops properties the DTO doesn't declare.
+    { provide: APP_PIPE, useValue: new ValidationPipe({ whitelist: true, transform: true }) },
+    // Applies @Exclude()/@Expose() to every response.
+    { provide: APP_INTERCEPTOR, useClass: ClassSerializerInterceptor },
+  ],
 })
 export class AppModule implements NestModule {
     configure(consumer: MiddlewareConsumer) {
