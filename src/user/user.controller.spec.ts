@@ -1,20 +1,25 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
 import { UserController } from './user.controller.js';
 import { UserService } from './user.service.js';
 
 describe('UserController', () => {
   let controller: UserController;
+  const userService = { create: vi.fn() };
 
   beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
+    vi.clearAllMocks();
+    const moduleRef = await Test.createTestingModule({
       controllers: [UserController],
-      providers: [UserService],
+      providers: [{ provide: UserService, useValue: userService }],
     }).compile();
-
-    controller = module.get<UserController>(UserController);
+    controller = moduleRef.get(UserController);
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
+  it('hands the body to the service and returns what it returns', async () => {
+    const dto = { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.com', password: 'correct horse' };
+    userService.create.mockResolvedValue({ id: 1 });
+
+    await expect(controller.create(dto)).resolves.toEqual({ id: 1 });
+    expect(userService.create).toHaveBeenCalledWith(dto);
   });
 });

@@ -5,9 +5,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { CatsModule } from './cats/cats.module.js';
 import { logger } from './common/middleware/logger.middleware.js';
-import { Routes } from './common/enums/routes.js';
 import { CatsController } from './cats/cats.controller.js';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UserModule } from './user/user.module.js';
@@ -17,6 +15,8 @@ import { AuthenticationModule } from '@nestjs/authentication';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AiModule } from './ai/ai.module.js';
 import { ChatModule } from './chat/chat.module.js';
+import { DevModule } from './dev/dev.module.js';
+import { SqlLogger } from './common/logging/sql-logger.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -41,13 +41,17 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
-        host: 'localhost',
-        port: 5432,
-        username: 'postgres',
-        password: 'postgres',
-        database: 'nestlearn',
+        // Defaults match the docker container from the setup; tests override DB_NAME.
+        host: config.get('DB_HOST', 'localhost'),
+        port: Number(config.get('DB_PORT', 5432)),
+        username: config.get('DB_USER', 'postgres'),
+        password: config.get('DB_PASSWORD', 'postgres'),
+        database: config.get('DB_NAME', 'nestlearn'),
         autoLoadEntities: true,
         synchronize: config.get('NODE_ENV') !== 'production',
+        // Prints every SQL statement (without parameter values) to the terminal. Off in production.
+        logging: config.get('NODE_ENV') !== 'production',
+        logger: new SqlLogger(),
       }),
     }),
     // Registers a global guard: every route needs a signed-in user unless marked @Public().
@@ -60,6 +64,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     AuthModule,
     AiModule,
     ChatModule,
+    DevModule,
   ],
   controllers: [AppController],
   providers: [

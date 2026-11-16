@@ -4,6 +4,8 @@ import { GoogleGenAI, type Content } from '@google/genai';
 import type { AiTool } from './ai-tool.js';
 import { Observable } from 'rxjs';
 import { z } from 'zod';
+import { EmbeddingTask } from '../common/enums/embedding-task.js';
+import { EMBEDDING_DIMENSIONS } from './embedding.constants.js';
 import { photoDescriptionSchema, type PhotoDescription } from './photo-description.schema.js';
 
 export interface ToolCallRecord {
@@ -16,11 +18,13 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly client: GoogleGenAI;
   private readonly model: string;
+  readonly embeddingModel: string;
 
   constructor(config: ConfigService) {
     // getOrThrow fails at startup if the key is missing, instead of on the first request.
     this.client = new GoogleGenAI({ apiKey: config.getOrThrow<string>('GEMINI_API_KEY') });
     this.model = config.get<string>('GEMINI_MODEL', 'gemini-flash-latest');
+    this.embeddingModel = config.get<string>('GEMINI_EMBEDDING_MODEL', 'gemini-embedding-001');
   }
 
   async ask(prompt: string): Promise<string> {
@@ -43,7 +47,7 @@ export class AiService {
    */
   async chatWithTools(prompt: string, tools: AiTool[], maxSteps = 5): Promise<{ answer: string; toolCalls: ToolCallRecord[] }> {
     const functionDeclarations = tools.map((tool) => {
-      const { $schema, ...parametersJsonSchema } = z.toJSONSchema(tool.parameters);
+      const { $schema: _schema, ...parametersJsonSchema } = z.toJSONSchema(tool.parameters);
       return { name: tool.name, description: tool.description, parametersJsonSchema };
     });
     const contents: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
@@ -102,10 +106,36 @@ export class AiService {
     }
   }
 
+  /**
+   * Turns text into a vector of numbers that captures its meaning: texts that mean similar
+   * things get vectors that are close together. Documents and queries are embedded with
+   * different task types, which the model uses to make them comparable.
+   */
+  async embed(text: string, task: EmbeddingTask): Promise<number[]> {
+    try {
+      const response = await this.client.models.embedContent({
+        model: this.embeddingModel,
+        contents: text,
+        config: {
+          taskType: task,
+          outputDimensionality: EMBEDDING_DIMENSIONS,
+        },
+      });
+      const values = response.embeddings?.[0]?.values;
+      if (values?.length !== EMBEDDING_DIMENSIONS) {
+        throw new Error(`Expected ${EMBEDDING_DIMENSIONS} dimensions, got ${values?.length}`);
+      }
+      return values;
+    } catch (error) {
+      this.logger.error('Gemini embedding failed', error);
+      throw new BadGatewayException('The AI provider request failed');
+    }
+  }
+
   /** Asks the model to describe an image, and validates the JSON it returns. */
   async describeImage(image: Buffer, mimeType: string): Promise<PhotoDescription> {
     // Gemini wants a plain JSON Schema; drop the "$schema" marker zod adds.
-    const { $schema, ...jsonSchema } = z.toJSONSchema(photoDescriptionSchema);
+    const { $schema: _schema, ...jsonSchema } = z.toJSONSchema(photoDescriptionSchema);
     try {
       const response = await this.client.models.generateContent({
         model: this.model,
@@ -139,7 +169,8 @@ export class AiService {
     return new Observable<MessageEvent>((subscriber) => {
       const abort = new AbortController();
 
-      (async () => {
+      // Fire and forget on purpose: the body handles its own errors, and results flow through the subscriber.
+      void (async () => {
         try {
           const chunks = await this.client.models.generateContentStream({
             model: this.model,

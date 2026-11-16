@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../user/entities/user.entity.js';
@@ -6,6 +7,8 @@ import { Photo } from './entities/photo.entity.js';
 import { Album } from './entities/album.entity.js';
 import { AiService } from '../ai/ai.service.js';
 import { detectImageType, PhotoStorage } from './photo-storage.service.js';
+import { EmbeddingTask } from '../common/enums/embedding-task.js';
+import { embeddingText } from './embedding-text.js';
 import { CreatePhotoDto } from './dto/create-photo.dto.js';
 
 /** What the service needs from an uploaded file; keeps it independent of the HTTP server's upload type. */
@@ -24,6 +27,7 @@ export class PhotoService {
     @InjectRepository(Album) private albumsRepository: Repository<Album>,
     private readonly aiService: AiService,
     private readonly storage: PhotoStorage,
+    private readonly config: ConfigService,
   ) {}
 
   /** Saves the uploaded image to disk, creates the row, then asks the AI to describe it. */
@@ -74,11 +78,55 @@ export class PhotoService {
     return { stream: this.storage.stream(photo.filename), mimeType: this.storage.mimeTypeOf(photo.filename) };
   }
 
+  /**
+   * Semantic search: embeds the query, then asks Postgres for the photos whose stored vectors
+   * are nearest (cosine distance, smaller = more similar). Only your photos and published ones.
+   */
+  async search(q: string, user: User, limit = 10) {
+    const vector = await this.aiService.embed(q, EmbeddingTask.Query);
+    const { entities, raw } = await this.photosRepository
+      .createQueryBuilder('photo')
+      // <=> is pgvector's cosine distance operator: 0 = same meaning, 1 = unrelated, 2 = opposite.
+      .addSelect('photo.embedding <=> CAST(:vector AS vector)', 'distance')
+      .where('photo.embedding IS NOT NULL')
+      // Only compare against vectors made by the model that embedded the query.
+      .andWhere('photo.embeddingModel = :model', { model: this.aiService.embeddingModel })
+      .andWhere('(photo.authorId = :userId OR photo.isPublished = true)', { userId: user.id })
+      .orderBy('distance', 'ASC')
+      .limit(limit)
+      .setParameter('vector', `[${vector.join(',')}]`)
+      .getRawAndEntities();
+
+    // Object.assign keeps each result a Photo instance (spreading would make a plain object),
+    // so the serializer still applies the @Exclude() rules.
+    const results = entities.map((photo, i) => Object.assign(photo, { distance: Number(raw[i].distance) }));
+
+    // Optional cutoff, tuned by hand for the embedding model in use. Without it the nearest
+    // photos are always returned, however far away. Results are already sorted nearest first, so
+    // filtering after the LIMIT gives the same rows as filtering in SQL, and the database only
+    // computes each distance once.
+    const maxDistance = Number(this.config.get('SEARCH_MAX_DISTANCE'));
+    if (this.config.get('SEARCH_MAX_DISTANCE') !== undefined && Number.isFinite(maxDistance)) {
+      return results.filter((photo) => photo.distance <= maxDistance);
+    }
+    return results;
+  }
+
   private async applyDescription(photo: Photo, buffer: Buffer, mimeType: string) {
     const { description, tags } = await this.aiService.describeImage(buffer, mimeType);
     photo.description = description;
     photo.tags = tags;
-    return this.photosRepository.save(photo);
+    const saved = await this.photosRepository.save(photo);
+
+    // Best effort: the description is already saved. A photo without an embedding simply
+    // doesn't show up in search until POST /photo/:id/describe is run again.
+    try {
+      const embedding = await this.aiService.embed(embeddingText(saved), EmbeddingTask.Document);
+      await this.photosRepository.update(saved.id, { embedding, embeddingModel: this.aiService.embeddingModel });
+    } catch {
+      this.logger.warn(`Photo ${saved.id} has no embedding; it won't appear in search`);
+    }
+    return saved;
   }
 
   async createDemo() {

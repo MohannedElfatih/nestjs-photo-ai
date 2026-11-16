@@ -8,5 +8,6 @@ import { SessionAuth } from './session-auth.provider.js';
   imports: [UserModule],
   controllers: [AuthController],
   providers: [AuthService, SessionAuth],
+  exports: [AuthService],
 })
 export class AuthModule {}

@@ -1,11 +1,9 @@
 import { Body, Controller, Post, Query, Sse, type MessageEvent } from '@nestjs/common';
 import type { Observable } from 'rxjs';
-import { Public } from '@nestjs/authentication';
 import { AiService } from './ai.service.js';
 import { AskDto } from './ask.dto.js';
 
-// Public for testing only: anyone can spend the API quota. Remove @Public() before deploying.
-@Public()
+// Not @Public(): the global guard means only signed-in users can spend the API quota.
 @Controller('ai')
 export class AiController {
   constructor(private readonly aiService: AiService) {}

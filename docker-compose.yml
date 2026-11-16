@@ -1,0 +1,54 @@
+# Runs the whole stack with one command:  docker compose up --build
+# Needs a .env file next to this one (copy .env.example) with at least GEMINI_API_KEY.
+
+services:
+  db:
+    # Postgres with the pgvector extension, needed for semantic photo search.
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-nestlearn}
+    volumes:
+      # A named volume: the data survives `docker compose down` (use `down -v` to wipe it).
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Only for GUI tools on your machine. Port 5433 avoids clashing with a Postgres already using 5432.
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-nestlearn}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy # wait until Postgres accepts connections
+    ports:
+      - "3000:3000"
+    # Everything in .env (API keys and so on) is passed in...
+    env_file:
+      - path: .env
+        required: false
+    # ...and these settings override it, because inside compose the database is reachable as "db".
+    environment:
+      # Not "production": that mode turns off schema sync and refuses in-memory sessions,
+      # and this project doesn't have migrations or a session store yet (see the README).
+      NODE_ENV: development
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-nestlearn}
+      # The password-free dev login must never be switched on in a container.
+      DEV_AUTO_LOGIN: "false"
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY in .env (copy .env.example)}
+    volumes:
+      - uploads:/app/uploads
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads:

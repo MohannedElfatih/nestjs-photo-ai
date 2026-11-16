@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   StreamableFile,
   UploadedFile,
   UseInterceptors,
@@ -14,6 +15,7 @@ import { CurrentUser } from '@nestjs/authentication';
 import { ApiBody, ApiConsumes } from '@nestjs/swagger';
 import { User } from '../user/entities/user.entity.js';
 import { CreatePhotoDto } from './dto/create-photo.dto.js';
+import { SearchPhotoDto } from './dto/search-photo.dto.js';
 import { PhotoService } from './photo.service.js';
 
 @Controller('photo')
@@ -61,6 +63,12 @@ export class PhotoController {
   async file(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
     const { stream, mimeType } = await this.photoService.getFile(id, user);
     return new StreamableFile(stream, { type: mimeType });
+  }
+
+  // Search by meaning, e.g. ?q=snowy animals. Declared before the :id routes.
+  @Get('search')
+  search(@Query() query: SearchPhotoDto, @CurrentUser() user: User) {
+    return this.photoService.search(query.q, user);
   }
 
   @Get()

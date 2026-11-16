@@ -1,29 +1,48 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { App } from 'supertest/types.js';
-import { AppModule } from './../src/app.module.js';
+import { createTestApp, resetState, type TestApp } from './helpers.js';
 
-describe('AppController (e2e)', () => {
-  let app: INestApplication<App>;
+describe('Protected by default (e2e)', () => {
+  let ctx: TestApp;
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+  beforeAll(async () => {
+    ctx = await createTestApp();
+  });
+  afterAll(() => ctx.app.close());
+  beforeEach(() => resetState(ctx.app));
 
-    app = moduleFixture.createNestApplication();
-    await app.init();
+  // The global guard denies everything that isn't marked @Public().
+  it.each([
+    ['GET', '/'],
+    ['GET', '/auth/me'],
+    ['GET', '/photo'],
+    ['GET', '/photo/search?q=cat'],
+    ['POST', '/photo'],
+    ['POST', '/chat'],
+    ['POST', '/ai/ask'],
+  ])('%s %s needs a signed-in user', async (method, path) => {
+    const res = await request(ctx.server)[method.toLowerCase() as 'get' | 'post'](path);
+
+    expect(res.status).toBe(401);
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
+  it('keeps the sign-up and sign-in routes open', async () => {
+    // Any answer except 401 proves the guard let the request through to validation.
+    const signUp = await request(ctx.server).post('/auth/sign-up').send({});
+    const signIn = await request(ctx.server).post('/auth/sign-in').send({});
+
+    expect(signUp.status).toBe(400);
+    expect(signIn.status).toBe(400);
   });
 
-  afterEach(async () => {
-    await app.close();
+  it('answers the health check without signing in', async () => {
+    const res = await request(ctx.server).get('/health').expect(200);
+
+    expect(res.body).toEqual({ status: 'ok' });
+  });
+
+  it('does not expose the dev login unless it is switched on', async () => {
+    const res = await request(ctx.server).post('/dev/login');
+
+    expect(res.status).toBe(404);
   });
 });

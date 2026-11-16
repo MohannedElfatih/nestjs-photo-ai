@@ -71,3 +71,6 @@ Content-Type: application/json
 {
   "message": "What photos have I uploaded, and what are they about?"
 }
+
+### Photo: search by meaning (needs sign-in and photos that were described)
+GET {{baseUrl}}/photo/search?q=official%20paperwork

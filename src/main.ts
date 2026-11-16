@@ -16,7 +16,11 @@ async function bootstrap() {
       .setDescription('Learning project API')
       .setVersion('0.0.1')
       .build();
-    SwaggerModule.setup('api', app, () => SwaggerModule.createDocument(app, config));
+    // With DEV_AUTO_LOGIN=true, the docs page signs the browser in as the dev user when it loads.
+    const autoLogin = configService.get('DEV_AUTO_LOGIN') === 'true';
+    SwaggerModule.setup('api', app, () => SwaggerModule.createDocument(app, config), {
+      customJsStr: autoLogin ? "fetch('/dev/login', { method: 'POST', credentials: 'same-origin' });" : undefined,
+    });
   }
   await app.listen(process.env.PORT ?? 3000);
 }

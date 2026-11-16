@@ -7,11 +7,12 @@ import { User } from '../user/entities/user.entity.js';
 import { PhotoController } from './photo.controller.js';
 import { PhotoService } from './photo.service.js';
 import { PhotoStorage } from './photo-storage.service.js';
+import { PhotoEmbeddingJob } from './photo-embedding.job.js';
 import { AiModule } from '../ai/ai.module.js';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Photo, PhotoMetadata, Album, User]), AiModule],
   controllers: [PhotoController],
-  providers: [PhotoService, PhotoStorage],
+  providers: [PhotoService, PhotoStorage, PhotoEmbeddingJob],
 })
 export class PhotoModule {}
